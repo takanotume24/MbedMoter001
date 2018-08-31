@@ -83,13 +83,13 @@ void setDirection(){
         data.newDirection = FORWARD;
     }
     if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_WHITE){
-        data.newDirection = STOP;
+        data.newDirection = FORWARD;
     }
     if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_WHITE){
-        data.newDirection = RIGHT;
+        data.newDirection = LEFT;
     }
     if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_BLACK){
-        data.newDirection = LEFT;
+        data.newDirection = RIGHT;
     }
 
     if(data.newDirection == data.oldDirection){
