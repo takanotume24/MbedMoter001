@@ -1,5 +1,8 @@
 #include <mbed.h>
-#define SPEED 0.01
+
+#define SPEED_LOW 0.04
+#define SPEED_HIGH 0.001
+
 #define FORWARD 100
 #define BACK 101
 #define RIGHT 102
@@ -8,6 +11,8 @@
 
 #define ON_WHITE 200
 #define ON_BLACK 201
+
+#define DEBUG false
 
 Ticker moterTimerRight;
 Ticker moterTimerLeft;
@@ -35,6 +40,8 @@ typedef struct{
 typedef struct{
     int directionRight;
     int directionLeft;
+    float speedRight;
+    float speedLeft;
 }MOTER;
 
 DATA data;
@@ -64,15 +71,15 @@ void getData(){
 
 void setBrightness(){
     if(data.valueOfSensorLeft < 0.5){
-        data.brightnessLeft = ON_BLACK;
-    }else{
         data.brightnessLeft = ON_WHITE;
+    }else{
+        data.brightnessLeft = ON_BLACK;
     }
 
     if(data.valueOfSensorRight < 0.5){
-        data.brightnessRight = ON_BLACK;
-    }else{
         data.brightnessRight = ON_WHITE;
+    }else{
+        data.brightnessRight = ON_BLACK;
     }
 
 }
@@ -81,15 +88,23 @@ void setDirection(){
     data.oldDirection = data.direction;
     if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_BLACK){
         data.newDirection = FORWARD;
+        moter.speedLeft = SPEED_LOW;
+        moter.speedRight = SPEED_LOW;
     }
     if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_WHITE){
         data.newDirection = FORWARD;
+        moter.speedLeft = SPEED_HIGH;
+        moter.speedRight = SPEED_HIGH;
     }
     if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_WHITE){
-        data.newDirection = LEFT;
+        data.newDirection = RIGHT;
+        moter.speedLeft = SPEED_HIGH;
+        moter.speedRight = SPEED_HIGH;
     }
     if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_BLACK){
-        data.newDirection = RIGHT;
+        data.newDirection = LEFT;
+        moter.speedLeft = SPEED_HIGH;
+        moter.speedRight = SPEED_HIGH;
     }
 
     if(data.newDirection == data.oldDirection){
@@ -128,10 +143,10 @@ void start(){
 }
 
 void startMoterLeft(){
-    moterTimerLeft.attach(&moterStraightLeft, SPEED);
+    moterTimerLeft.attach(&moterStraightLeft, moter.speedLeft);
 }
 void startMoterRight(){
-    moterTimerRight.attach(&moterStraightRight, SPEED);
+    moterTimerRight.attach(&moterStraightRight, moter.speedRight);
 }
 
 void stopMoterLeft(){
@@ -168,6 +183,7 @@ void stop(){
 
 
 void moterStraightLeft(){
+
     if(moter.directionLeft== FORWARD){
         if(countLeft == 3){
             countLeft = 0;
@@ -205,6 +221,11 @@ void moterStraightLeft(){
 }
 
 void moterStraightRight(){
+    // for(int i = 0.1; i < 0.01 ; i=i-0.01){
+    //     moter.speedRight = i;
+    //     moterStraightRight();
+    // }
+
     if(moter.directionRight == FORWARD){
         if(countRight == 3){
             countRight = 0;
@@ -338,6 +359,6 @@ int main() {
     while(1) {
         getData();
         start();
-        debug();
+        if(DEBUG) debug();
     }
 }
