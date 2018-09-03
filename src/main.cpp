@@ -1,7 +1,7 @@
 #include <mbed.h>
 
 #define SPEED_LOW 0.04
-#define SPEED_HIGH 0.001
+#define SPEED_HIGH 0.0025
 
 #define FORWARD 100
 #define BACK 101
@@ -49,8 +49,8 @@ MOTER moter;
 
 
 
-void moterStraightLeft();
-void moterStraightRight();
+void moter_1_StraightLeft();
+void moter_1_StraightRight();
 void getData();
 void setDirection();
 void start();
@@ -59,6 +59,8 @@ void goRight();
 void goStaight();
 void stop();
 void setBrightness();
+void moter_12_StraightRight();
+void moter_12_StraightLeft();
 
 int countRight = 0;
 int countLeft = 0;
@@ -143,10 +145,10 @@ void start(){
 }
 
 void startMoterLeft(){
-    moterTimerLeft.attach(&moterStraightLeft, moter.speedLeft);
+    moterTimerLeft.attach(&moter_12_StraightLeft, moter.speedLeft);
 }
 void startMoterRight(){
-    moterTimerRight.attach(&moterStraightRight, moter.speedRight);
+    moterTimerRight.attach(&moter_12_StraightRight, moter.speedRight);
 }
 
 void stopMoterLeft(){
@@ -182,7 +184,7 @@ void stop(){
 }
 
 
-void moterStraightLeft(){
+void moter_1_StraightLeft(){
 
     if(moter.directionLeft== FORWARD){
         if(countLeft == 3){
@@ -220,10 +222,10 @@ void moterStraightLeft(){
     
 }
 
-void moterStraightRight(){
+void moter_1_StraightRight(){
     // for(int i = 0.1; i < 0.01 ; i=i-0.01){
     //     moter.speedRight = i;
-    //     moterStraightRight();
+    //     moter_1_StraightRight();
     // }
 
     if(moter.directionRight == FORWARD){
@@ -262,70 +264,104 @@ void moterStraightRight(){
     }
 }
 
-void moter12(){
-    switch(countRight){
+void moter_12_StraightLeft(){
+    if(moter.directionLeft == FORWARD){
+        if(countLeft == 7){
+            countLeft = 0;
+        }else{
+            countLeft++;
+        }
+    }
+    if(moter.directionLeft == BACK){
+        if(countLeft == 0){
+            countLeft = 7;
+        }else{
+            countLeft--;
+        }
+    }  
+    switch(countLeft){
         case 0:
-            SA = 1;
-            SB = 0;
-            SA_ = 0;
-            SB_ = 0;
-            countRight++;
+            moterLeft = 0b1001;
             break;
 
         case 1:
-            SA = 1;
-            SB = 1;
-            SA_ = 0;
-            SB_ = 0;
-            countRight++;
+            moterLeft = 0b1000;
             break;
 
         case 2:
-            SA = 0;
-            SB = 1;
-            SA_ = 0;
-            SB_ = 0;
-            countRight++;
+            moterLeft = 0b1100;
             break;
 
         case 3:
-            SA = 0;
-            SB = 1;
-            SA_ = 1;
-            SB_ = 0;
-            countRight++;
+            moterLeft = 0b0100;
             break;
 
         case 4:
-            SA = 0;
-            SB = 0;
-            SA_ = 1;
-            SB_ = 0;
-            countRight++;
+            moterLeft = 0b0110;
             break;
         
         case 5:
-            SA = 0;
-            SB = 0;
-            SA_ = 1;
-            SB_ = 1;
-            countRight++;
+            moterLeft = 0b0010;
             break;
 
         case 6:
-            SA = 0;
-            SB = 0;
-            SA_ = 0;
-            SB_ = 1;
-            countRight++;
+            moterLeft = 0b0011;
             break;
 
         case 7:
-            SA = 1;
-            SB = 0;
-            SA_ = 0;
-            SB_ = 1;
+            moterLeft = 0b0001;
+            break;
+
+    }
+}
+
+
+void moter_12_StraightRight(){
+    if(moter.directionRight == FORWARD){
+        if(countRight == 7){
             countRight = 0;
+        }else{
+            countRight++;
+        }
+    }
+    if(moter.directionRight == BACK){
+        if(countRight == 0){
+            countRight = 7;
+        }else{
+            countRight--;
+        }
+    }  
+    switch(countRight){
+        case 0:
+            moterRight = 0b0001;
+            break;
+
+        case 1:
+            moterRight = 0b0011;
+            break;
+
+        case 2:
+            moterRight = 0b0010;
+            break;
+
+        case 3:
+            moterRight = 0b0110;
+            break;
+
+        case 4:
+            moterRight = 0b0100;
+            break;
+        
+        case 5:
+            moterRight = 0b1100;
+            break;
+
+        case 6:
+            moterRight = 0b1000;
+            break;
+
+        case 7:
+            moterRight = 0b1001;
             break;
 
     }
