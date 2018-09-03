@@ -23,7 +23,7 @@
 #define ON_WHITE 200
 #define ON_BLACK 201
 
-#define DEBUG 1
+#define DEBUG 0
 #define HIGH 1
 #define LOW 0
 
@@ -54,6 +54,7 @@ typedef struct{
     int brightnessLeft;
     int brightnessCenter;
     int brightnessRight;
+    int beforeDirection;
 }DATA;
 
 typedef struct{
@@ -125,8 +126,8 @@ void setDirection(){
     if(data.brightnessCenter == ON_BLACK){
         if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_BLACK ){
             data.newDirection = FORWARD;
-            moter.speedLeft = SPEED_LOW;
-            moter.speedRight = SPEED_LOW;
+            moter.speedLeft = SPEED_HIGH;
+            moter.speedRight = SPEED_HIGH;
         }
         if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_WHITE){
             data.newDirection = FORWARD;
@@ -135,30 +136,41 @@ void setDirection(){
         }
         if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_WHITE){
             data.newDirection = LEFT;
+            data.beforeDirection = LEFT;
             moter.speedLeft = SPEED_HIGH;
             moter.speedRight = SPEED_HIGH;
         }
         if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_BLACK){
             data.newDirection = RIGHT;
+            data.beforeDirection = RIGHT;
             moter.speedLeft = SPEED_HIGH;
             moter.speedRight = SPEED_HIGH;
         }
     }
     if(data.brightnessCenter == ON_WHITE){
         if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_WHITE){
-            data.newDirection = FORWARD;
+            switch(data.beforeDirection){
+                case LEFT:
+                    data.newDirection = TURN_LEFT;
+                    break;
+                case RIGHT:
+                    data.newDirection = TURN_RIGHT;
+                    break;
+            }
             moter.speedLeft = SPEED_HIGH;
             moter.speedRight = SPEED_HIGH;
         }
         if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_WHITE){
+            data.beforeDirection = LEFT;
             data.newDirection = TURN_LEFT;
-            moter.speedLeft = SPEED_MEDIUM;
-            moter.speedRight = SPEED_MEDIUM;
+            moter.speedLeft = SPEED_HIGH;
+            moter.speedRight = SPEED_HIGH;
         }
         if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_BLACK){
+            data.beforeDirection = RIGHT;
             data.newDirection = TURN_RIGHT;
-            moter.speedLeft = SPEED_MEDIUM;
-            moter.speedRight = SPEED_MEDIUM;
+            moter.speedLeft = SPEED_HIGH;
+            moter.speedRight = SPEED_HIGH;
         }
     }
 
@@ -206,10 +218,10 @@ void start(){
 }
 
 void startMoterLeft(){
-    moterTimerLeft.attach(&moter_12_StraightLeft, moter.speedLeft);
+    moterTimerLeft.attach(&moter_1_StraightLeft, moter.speedLeft);
 }
 void startMoterRight(){
-    moterTimerRight.attach(&moter_12_StraightRight, moter.speedRight);
+    moterTimerRight.attach(&moter_1_StraightRight, moter.speedRight);
 }
 
 void stopMoterLeft(){
