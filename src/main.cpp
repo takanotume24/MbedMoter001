@@ -22,8 +22,8 @@
 #define ON_WAY          500
 #define MISSING         501
 #define ALL_WAY         502
+#define BEFORE_WAY_IS_ALL_BLACK   503
 
-#define DEBUG           0
 #define HIGH            1
 #define LOW             0
 
@@ -47,6 +47,8 @@ AnalogIn SensorLeft(PC_2);
 AnalogIn SensorRight(PB_1);
 AnalogIn SensorCenter(PC_3);
 AnalogIn volume(PC_5);
+Serial pc(USBTX, USBRX, 115200);
+
 
 typedef struct{
     int flag;
@@ -63,6 +65,7 @@ typedef struct{
     int beforeDirection;
     int mode;
     int onWay;
+    int beforeWayStatus;
 }DATA;
 
 typedef struct{
@@ -70,6 +73,7 @@ typedef struct{
     float speedMedium;
     float speedHigh;
     float Threshold;
+    bool DEBUG;
 }VALUE;
 
 typedef struct{
@@ -157,8 +161,8 @@ void setSpeed(){
                         moter.speedLeft = value.speedHigh;
                         moter.speedRight = value.speedHigh;
                     }else{
-                        moter.speedLeft = value.speedHigh * (1+data.valueOfSensorLeft);
-                        moter.speedRight = value.speedHigh  ; 
+                        moter.speedLeft = value.speedHigh ;
+                        moter.speedRight = value.speedHigh * (1+data.valueOfSensorLeft) ; 
                     }
                     break;
 
@@ -173,8 +177,8 @@ void setSpeed(){
                 moter.speedLeft = value.speedHigh;
                 moter.speedRight = value.speedHigh;
             }else{
-                moter.speedLeft = value.speedHigh * (1+data.valueOfSensorCenter);
-                moter.speedRight = value.speedHigh  ; 
+                moter.speedLeft = value.speedHigh;
+                moter.speedRight = value.speedHigh  * (1+data.valueOfSensorCenter) ; 
             }
             break;
 
@@ -185,8 +189,8 @@ void setSpeed(){
                         moter.speedLeft = value.speedHigh;
                         moter.speedRight = value.speedHigh;
                     }else{
-                        moter.speedLeft = value.speedHigh;
-                        moter.speedRight = value.speedHigh * (1+data.valueOfSensorRight) ; 
+                        moter.speedLeft = value.speedHigh * (1+data.valueOfSensorRight);
+                        moter.speedRight = value.speedHigh ; 
                     }
                     break;
 
@@ -201,59 +205,145 @@ void setSpeed(){
                 moter.speedLeft = value.speedHigh;
                 moter.speedRight = value.speedHigh;
             }else{
-                moter.speedLeft = value.speedHigh;
-                moter.speedRight = value.speedHigh * (1+data.valueOfSensorCenter);
+                moter.speedLeft = value.speedHigh * (1+data.valueOfSensorCenter);
+                moter.speedRight = value.speedHigh;
             }
 
     }
 }
 void setDirection(){
     data.oldDirection = data.direction;
+    switch(data.brightnessCenter){
+        case ON_BLACK:  //真ん中が線上
+            data.onWay = ON_WAY;
+            if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_BLACK ){
+                data.newDirection = FORWARD;
+                data.beforeWayStatus = BEFORE_WAY_IS_ALL_BLACK;
+            }
+            if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_WHITE){
+                data.newDirection = FORWARD;
+                data.beforeWayStatus = ON_WAY;
+            }
+            if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_WHITE){
+                switch(data.beforeWayStatus){
+                    case BEFORE_WAY_IS_ALL_BLACK:
+                        data.newDirection = RIGHT;
+                        data.beforeDirection = RIGHT;
+                        data.beforeWayStatus = BEFORE_WAY_IS_ALL_BLACK;
+                        break;
+
+                    case ON_WAY:
+                        data.newDirection = LEFT;
+                        data.beforeDirection = LEFT;
+                        data.beforeWayStatus = ON_WAY;
+                        break;
+                }
+            }
+            if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_BLACK){
+                switch(data.beforeWayStatus){
+                    case BEFORE_WAY_IS_ALL_BLACK:
+                        data.newDirection = LEFT;
+                        data.beforeDirection = LEFT;
+                        data.beforeWayStatus = BEFORE_WAY_IS_ALL_BLACK;
+                        break;
+
+                    case ON_WAY:
+                        data.newDirection = RIGHT;
+                        data.beforeDirection = RIGHT;
+                        data.beforeWayStatus = ON_WAY;
+                        break;
+                }
+            }
+            break;
+         
+         case ON_WHITE:  //真ん中が線上にない
+            if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_WHITE){
+                data.onWay = MISSING;
+                switch(data.beforeWayStatus){
+                    case BEFORE_WAY_IS_ALL_BLACK:
+                        switch(data.beforeDirection){
+                            case LEFT:
+                                data.newDirection = TURN_RIGHT;
+                                break;
+
+                            case RIGHT:
+                                data.newDirection = TURN_LEFT;
+                                break;
+                        }
+                        data.beforeWayStatus = BEFORE_WAY_IS_ALL_BLACK;
+                        break;
+                    
+                    case ON_WAY:
+                        switch(data.direction){
+                            case LEFT:
+                                data.newDirection = TURN_LEFT;
+                                break;
+
+                            case RIGHT:
+                                data.newDirection = TURN_RIGHT;
+                                break;
+                        }
+                        data.beforeWayStatus = MISSING;
+                        break;
+                        
+
+                    case MISSING:
+                        switch(data.direction){
+                            case LEFT:
+                                data.newDirection = TURN_LEFT;
+                                break;
+
+                            case RIGHT:
+                                data.newDirection = TURN_RIGHT;
+                                break;
+                        }
+                        data.beforeWayStatus = MISSING;
+                        break;
+                }
+            }
+            if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_WHITE){
+                data.onWay = ON_WAY;
+                switch(data.beforeWayStatus){
+                    case BEFORE_WAY_IS_ALL_BLACK:
+                        data.beforeWayStatus = ON_WAY;
+                        break;
+                    
+                    case ON_WAY:
+                    case MISSING:
+                        data.beforeDirection = LEFT;
+                        data.newDirection = LEFT;
+                        data.beforeWayStatus = ON_WAY;
+                        break;
+                }
+            }
+            if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_BLACK){
+                data.onWay = ON_WAY;
+                switch(data.beforeWayStatus){
+                    case BEFORE_WAY_IS_ALL_BLACK:
+                        data.beforeWayStatus = ON_WAY;
+                        break;
+                    
+                    case ON_WAY:
+                    case MISSING:
+                        data.beforeDirection = RIGHT;
+                        data.newDirection = RIGHT;
+                        data.beforeWayStatus = ON_WAY;
+                        break;
+                }
+            }
+            if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_BLACK){
+                data.onWay = ON_WAY;
+                data.newDirection = FORWARD;
+                data.beforeWayStatus = ON_WAY;
+            }
+            break;
+
+    }
     if(data.brightnessCenter == ON_BLACK){
-        data.onWay = ON_WAY;
-        if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_BLACK ){
-            data.newDirection = FORWARD;
-        }
-        if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_WHITE){
-            data.newDirection = FORWARD;
-        }
-        if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_WHITE){
-            data.newDirection = LEFT;
-            data.beforeDirection = LEFT;
-        }
-        if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_BLACK){
-            data.newDirection = RIGHT;
-            data.beforeDirection = RIGHT;
-        }
+        
     }
     if(data.brightnessCenter == ON_WHITE){
-        if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_WHITE){
-            data.onWay = MISSING;
-            switch(data.beforeDirection){
-                case LEFT:
-                    data.newDirection = TURN_LEFT;
-                    break;
-                case RIGHT:
-                    data.newDirection = TURN_RIGHT;
-                    break;
-            }
-            //直進が入った直後に、抜けるとき
-
-        }
-        if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_WHITE){
-            data.onWay = ON_WAY;
-            data.beforeDirection = LEFT;
-            data.newDirection = LEFT;
-        }
-        if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_BLACK){
-            data.onWay = ON_WAY;
-            data.beforeDirection = RIGHT;
-            data.newDirection = RIGHT;
-        }
-        if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_BLACK){
-            data.onWay = ON_WAY;
-            data.newDirection = FORWARD;
-        }
+        
     }
 
     if(data.newDirection == data.oldDirection){
@@ -768,7 +858,7 @@ void debug(){
             printf("TURN_RIGHT");
             break;
     }
-    printf("\t");
+    printf("\t\t");
     printf("MODE:");
     switch(data.mode){
         case RUN_MODE_12:
@@ -787,6 +877,19 @@ void debug(){
     printf("volume:");
     printf("%f",data.valueOfVolume);
     printf("\t");
+    printf("beforeWayStatus:");
+    switch(data.beforeWayStatus){
+        case ON_WAY:
+            printf("ON_WAY");
+            break;
+        case BEFORE_WAY_IS_ALL_BLACK:
+            printf("BEFORE_WAY_IS_ALL_BLACK");
+            break;
+        case MISSING:
+            printf("MISSING");
+            break;
+    }
+    printf("\t");
     printf("\n");
 }
 
@@ -799,26 +902,31 @@ void init(){
             value.speedLow = 0.04;
             value.speedMedium = 0.006;
             value.speedHigh = 0.003;
+            value.DEBUG = false;
             break;
         case RUN_MODE_2:
             value.speedLow = 0.04;
             value.speedMedium = 0.006;
             value.speedHigh = 0.003;
+            value.DEBUG = false;
             break;
         case RUN_MODE_23:
             value.speedLow = 0.02;
             value.speedMedium = 0.0040;
             value.speedHigh = 0.0015;
+            value.DEBUG = false;
             break;
         case RUN_MODE_12:
             value.speedLow = 0.02;
             value.speedMedium = 0.0040;
             value.speedHigh = 0.0015;
+            value.DEBUG = false;
             break;
         case TEST_MODE:
             value.speedLow = 0.1;
             value.speedMedium = 0.03;
             value.speedHigh = 0.015;
+            value.DEBUG = true;
             break;
     }
     value.Threshold = data.valueOfVolume;
@@ -848,6 +956,6 @@ int main() {
     while(1) {
         getData();
         start();
-        if(DEBUG) debug();
+        if(value.DEBUG) debug();
     }
 }
