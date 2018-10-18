@@ -1,4 +1,6 @@
 #include <mbed.h>
+#include <stdlib.h>
+
 #define RUN_MODE_12     400
 #define RUN_MODE_2      401
 #define TEST_MODE       402
@@ -26,6 +28,7 @@
 
 #define HIGH            1
 #define LOW             0
+#define SENSOR_TARGET_VAL 1.0
 
 int histry[10];
 Ticker moterTimerRight;
@@ -46,9 +49,22 @@ DigitalOut ledRight(PC_8);
 AnalogIn SensorLeft(PC_2);
 AnalogIn SensorRight(PB_1);
 AnalogIn SensorCenter(PC_3);
-AnalogIn volume(PC_5);
+AnalogIn volume1(PC_5);
+AnalogIn volume2(PA_0);
+AnalogIn volume3(PA_1);
 Serial pc(USBTX, USBRX, 115200);
 
+typedef struct{
+    float diff[2];
+    float integral;
+    float p,i,d;
+}RIGHT_VAL;
+
+typedef struct{
+    float diff[2];
+    float integral;
+    float p,i,d;
+}LEFT_VAL;
 
 typedef struct{
     int flag;
@@ -58,7 +74,9 @@ typedef struct{
     float valueOfSensorLeft;
     float valueOfSensorCenter;
     float valueOfSensorRight;
-    float valueOfVolume;
+    float valueOfVolume1;
+    float valueOfVolume2;
+    float valueOfVolume3;
     int brightnessLeft;
     int brightnessCenter;
     int brightnessRight;
@@ -66,6 +84,8 @@ typedef struct{
     int mode;
     int onWay;
     int beforeWayStatus;
+    float controlLeftVal;
+    float controlRightVal;
 }DATA;
 
 typedef struct{
@@ -74,6 +94,9 @@ typedef struct{
     float speedHigh;
     float Threshold;
     bool DEBUG;
+    float KP;
+    float KI;
+    float KD;
 }VALUE;
 
 typedef struct{
@@ -86,6 +109,8 @@ typedef struct{
 DATA data;
 VALUE value;
 MOTER moter;
+RIGHT_VAL rightVal;
+LEFT_VAL leftVal;
 
 
 
@@ -108,15 +133,54 @@ void moter_3_StraightLeft();
 void moter_3_StraightRight();
 void moter_23_StraightLeft();
 void moter_23_StraightRight();
+float limit(float);
 
 int countRight = 0;
 int countLeft = 0;
+
+float pidCalcLeft(float sensorVal, float targetVal, float speed){
+    leftVal.diff[0] = leftVal.diff[1];
+    leftVal.diff[1] = sensorVal - targetVal;
+    leftVal.integral = leftVal.integral +(leftVal.diff[1]+leftVal.diff[0])/2.0*speed;
+
+    leftVal.p = value.KP * leftVal.diff[1];
+    leftVal.i = value.KI * leftVal.integral;
+    leftVal.d = value.KD * (leftVal.diff[1]-leftVal.diff[0])/speed;
+
+    return abs(leftVal.p+leftVal.i+leftVal.p);
+}
+
+
+float pidCalcRight(float sensorVal, float targetVal, float speed){
+    rightVal.diff[0] = rightVal.diff[1];
+    rightVal.diff[1] = sensorVal - targetVal;
+    rightVal.integral = rightVal.integral +(rightVal.diff[1]+rightVal.diff[0])/2.0*speed;
+
+    rightVal.p = 10*value.KP * rightVal.diff[1];
+    rightVal.i = 10*value.KI * rightVal.integral;
+    rightVal.d = 10*value.KD * (rightVal.diff[1]-rightVal.diff[0])/speed;
+
+    return abs(rightVal.p+rightVal.i+rightVal.p);
+}
+
+float limit(float val){
+    if(val > 1){
+        return 1.0;
+    }
+    if(val < 0){
+        return 0.0;
+    }
+
+    return 0;
+}
 
 void getData(){
     data.valueOfSensorLeft = SensorLeft.read();
     data.valueOfSensorCenter = SensorCenter.read();
     data.valueOfSensorRight = SensorRight.read();
-    data.valueOfVolume = volume.read();
+    data.valueOfVolume1 = volume1.read();
+    data.valueOfVolume2 = volume2.read();
+    data.valueOfVolume3 = volume3.read();
     setBrightness();
 }
 
@@ -148,6 +212,8 @@ void setBrightness(){
 }
 
 void setSpeed(){
+    data.controlLeftVal = pidCalcLeft(data.valueOfSensorLeft, SENSOR_TARGET_VAL, moter.speedLeft);
+    data.controlRightVal = pidCalcRight(data.valueOfSensorRight, SENSOR_TARGET_VAL, moter.speedRight);
     switch(data.direction){
         case FORWARD:
             moter.speedLeft = value.speedHigh;
@@ -157,57 +223,40 @@ void setSpeed(){
         case TURN_RIGHT:
             switch(data.onWay){
                 case ON_WAY:
-                    if(data.valueOfSensorLeft < value.Threshold){
-                        moter.speedLeft = value.speedHigh;
-                        moter.speedRight = value.speedHigh;
-                    }else{
-                        moter.speedLeft = value.speedHigh ;
-                        moter.speedRight = value.speedHigh * (1+data.valueOfSensorLeft) ; 
-                    }
+                    moter.speedLeft = value.speedHigh ;
+                    moter.speedRight = value.speedHigh * data.controlLeftVal ; 
                     break;
 
                 case MISSING:
                     moter.speedLeft = value.speedHigh;
                     moter.speedRight = value.speedHigh;
+                    break;
             }
             break;
 
         case RIGHT:
-            if(data.valueOfSensorCenter < value.Threshold){
                 moter.speedLeft = value.speedHigh;
-                moter.speedRight = value.speedHigh;
-            }else{
-                moter.speedLeft = value.speedHigh;
-                moter.speedRight = value.speedHigh  * (1+data.valueOfSensorCenter) ; 
-            }
-            break;
+                moter.speedRight = value.speedHigh  * data.controlLeftVal ; 
+                break;
 
         case TURN_LEFT:
             switch(data.onWay){
                 case ON_WAY:
-                    if(data.valueOfSensorRight < value.Threshold){
-                        moter.speedLeft = value.speedHigh;
-                        moter.speedRight = value.speedHigh;
-                    }else{
-                        moter.speedLeft = value.speedHigh * (1+data.valueOfSensorRight);
-                        moter.speedRight = value.speedHigh ; 
-                    }
+                    moter.speedLeft = value.speedHigh * data.controlRightVal;
+                    moter.speedRight = value.speedHigh ; 
                     break;
 
                 case MISSING:
                     moter.speedLeft = value.speedHigh;
                     moter.speedLeft = value.speedHigh;
+                    break;
             }
             break;
 
         case LEFT:
-            if(data.valueOfSensorCenter < value.Threshold){
-                moter.speedLeft = value.speedHigh;
+                moter.speedLeft = value.speedHigh * data.controlRightVal;
                 moter.speedRight = value.speedHigh;
-            }else{
-                moter.speedLeft = value.speedHigh * (1+data.valueOfSensorCenter);
-                moter.speedRight = value.speedHigh;
-            }
+                break;
 
     }
 }
@@ -217,11 +266,11 @@ void setDirection(){
         case ON_BLACK:  //真ん中が線上
             data.onWay = ON_WAY;
             if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_BLACK ){
-                data.newDirection = FORWARD;
+                // data.newDirection = FORWARD;
                 data.beforeWayStatus = BEFORE_WAY_IS_ALL_BLACK;
             }
             if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_WHITE){
-                data.newDirection = FORWARD;
+                // data.newDirection = FORWARD;
                 data.beforeWayStatus = ON_WAY;
             }
             if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_WHITE){
@@ -875,7 +924,7 @@ void debug(){
     }
     printf("\t");
     printf("volume:");
-    printf("%f",data.valueOfVolume);
+    printf("%1.2f",data.valueOfVolume1);
     printf("\t");
     printf("beforeWayStatus:");
     switch(data.beforeWayStatus){
@@ -890,6 +939,8 @@ void debug(){
             break;
     }
     printf("\t");
+    printf("controlLeftVal:%1.2f, controlRightVal:%1.2f, ",data.controlLeftVal,data.controlRightVal);
+    printf("p:%1.2f, i:%1.2f, d:%1.2f",rightVal.p,rightVal.i,rightVal.d);
     printf("\n");
 }
 
@@ -929,8 +980,11 @@ void init(){
             value.DEBUG = true;
             break;
     }
-    value.Threshold = data.valueOfVolume;
+    value.KP = 0.5;
+    value.KI = 0.0;
+    value.KD = 0.02;
 }
+
 
 void modeSet(){
     switch(digitalSwitch.read()){
@@ -950,6 +1004,14 @@ void modeSet(){
             data.mode = RUN_MODE_23;
             break;
     }
+}
+
+void setValue(){
+    value.Threshold = data.valueOfVolume1;
+    value.KP = data.valueOfVolume1;
+    value.KI = data.valueOfVolume2;
+    value.KD = data.valueOfVolume3;
+
 }
 int main() {
     init();
