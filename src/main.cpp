@@ -1,38 +1,49 @@
 #include <mbed.h>
-#define RUN_MODE_12     400
-#define RUN_MODE_2      401
-#define TEST_MODE       402
-#define RUN_MODE_3      403
-#define RUN_MODE_23     404
+enum RUN_MODE{
+	RUN_MODE_2,
+	RUN_MODE_3,
+	RUN_MODE_12,
+	RUN_MODE_23,
+	TEST_MODE
+};
 
-#define FORWARD         100
-#define BACK            101
-#define RIGHT           102
-#define LEFT            103
-#define STOP            104
-#define TURN_RIGHT      105
-#define TURN_LEFT       106
 
-#define ON_WHITE        200
-#define ON_BLACK        201
+enum BRIGHTNESS{
+	ON_WHITE,
+	ON_BLACK
+};
 
-#define ON_STRAIGHT_WAY 300
-#define ON_CURVE_WAY    301
+enum WAY_STATUS{
+	ON_STRAIGHT_WAY,
+	ON_CURVE_WAY
+};
 
-#define ON_WAY          500
-#define MISSING         501
-#define ALL_WAY         502
-#define BEFORE_WAY_IS_ALL_BLACK   503
+enum ON_WAY{
+	ON_WAY,
+	MISSING,
+	ALL_WAY,
+	BEFORE_WAY_IS_ALL_BLACK
+};
+
+enum DIRECTION{
+	FORWARD,
+	BACK,
+	RIGHT,
+	LEFT,
+	STOP,
+	TURN_RIGHT,
+	TURN_LEFT
+};
 
 #define HIGH            1
 #define LOW             0
 
 int histry[10];
-Ticker moterTimerRight;
-Ticker moterTimerLeft;
+Ticker motorTimerRight;
+Ticker motorTimerLeft;
 Ticker sensorTimer;
-BusOut moterRight(PB_15,PB_13,PB_14,PC_4);
-BusOut moterLeft(PC_12,PB_7,PA_15,PC_13);
+BusOut motorRight(PB_15,PB_13,PB_14,PC_4);
+BusOut motorLeft(PC_12,PB_7,PA_15,PC_13);
 
 BusIn digitalSwitch(PD_2,PC_11,PC_9,PB_8);
 
@@ -52,20 +63,20 @@ Serial pc(USBTX, USBRX, 115200);
 
 typedef struct{
     int flag;
-    int newDirection;
-    int oldDirection;
-    int direction;
+    enum DIRECTION oldDirection;
+	enum DIRECTION newDirection;
+    enum DIRECTION direction;
     float valueOfSensorLeft;
     float valueOfSensorCenter;
     float valueOfSensorRight;
     float valueOfVolume;
-    int brightnessLeft;
-    int brightnessCenter;
-    int brightnessRight;
-    int beforeDirection;
-    int mode;
-    int onWay;
-    int beforeWayStatus;
+    enum BRIGHTNESS brightnessLeft;
+    enum BRIGHTNESS brightnessCenter;
+    enum BRIGHTNESS brightnessRight;
+    enum DIRECTION beforeDirection;
+    enum RUN_MODE mode;
+    enum ON_WAY onWay;
+    enum ON_WAY beforeWayStatus;
 }DATA;
 
 typedef struct{
@@ -74,23 +85,41 @@ typedef struct{
     float speedHigh;
     float Threshold;
     bool DEBUG;
+	float KP;
+	float KI;
+	float KD;
 }VALUE;
 
 typedef struct{
-    int directionRight;
-    int directionLeft;
+    enum DIRECTION directionRight;
+    enum DIRECTION directionLeft;
     float speedRight;
     float speedLeft;
-}MOTER;
+}MOTOR;
+
+typedef struct{
+    float diff[2];
+    float integral;
+    float p,i,d;
+}RIGHT_VAL;
+
+typedef struct{
+    float diff[2];
+    float integral;
+    float p,i,d;
+}LEFT_VAL;
+
+RIGHT_VAL rightVal;
+LEFT_VAL leftVal;
 
 DATA data;
 VALUE value;
-MOTER moter;
+MOTOR motor;
 
 
 
-void moter_2_StraightLeft();
-void moter_2_StraightRight();
+void motor_2_StraightLeft();
+void motor_2_StraightRight();
 void getData();
 void setDirection();
 void start();
@@ -99,16 +128,17 @@ void goRight();
 void goStaight();
 void stop();
 void setBrightness();
-void moter_12_StraightRight();
-void moter_12_StraightLeft();
+void motor_12_StraightRight();
+void motor_12_StraightLeft();
 void turnLeft();
 void turnRight();
 void modeSet();
-void moter_3_StraightLeft();
-void moter_3_StraightRight();
-void moter_23_StraightLeft();
-void moter_23_StraightRight();
-
+void motor_3_StraightLeft();
+void motor_3_StraightRight();
+void motor_23_StraightLeft();
+void motor_23_StraightRight();
+float limit(float);
+float freqToSeconds(int);
 int countRight = 0;
 int countLeft = 0;
 
@@ -147,213 +177,261 @@ void setBrightness(){
 
 }
 
+
+float pidCalcLeft(float sensorVal, float targetVal, float speed){
+    leftVal.diff[0] = leftVal.diff[1];
+    leftVal.diff[1] = sensorVal - targetVal;
+    leftVal.integral = leftVal.integral +(leftVal.diff[1]+leftVal.diff[0])/2.0*speed;
+
+    leftVal.p = value.KP * leftVal.diff[1];
+    leftVal.i = value.KI * leftVal.integral;
+    leftVal.d = value.KD * (leftVal.diff[1]-leftVal.diff[0])/speed;
+
+    return limit(abs(leftVal.p+leftVal.i+leftVal.p));
+}
+
+
+float pidCalcRight(float sensorVal, float targetVal, float speed){
+    rightVal.diff[0] = rightVal.diff[1];
+    rightVal.diff[1] = sensorVal - targetVal;
+    rightVal.integral = rightVal.integral +(rightVal.diff[1]+rightVal.diff[0])/2.0*speed;
+
+    rightVal.p = value.KP * rightVal.diff[1];
+    rightVal.i = value.KI * rightVal.integral;
+    rightVal.d = value.KD * (rightVal.diff[1]-rightVal.diff[0])/speed;
+
+    return limit(abs(rightVal.p+rightVal.i+rightVal.p));
+}
+
+float limit(float val){
+    if(val > 1){
+        return 1.0;
+    }
+    else if(val < 0){
+        return 0.0;
+    }
+	else{
+		return val;
+	}
+    return 0;
+}
+
+
 void setSpeed(){
     switch(data.direction){
         case FORWARD:
-            moter.speedLeft = value.speedHigh;
-            moter.speedRight = value.speedHigh;
+            //motor.speedLeft = value.speedHigh / pidCalcLeft(data.valueOfSensorLeft, 0.0, 0.001);
+			motor.speedLeft = freqToSeconds(334 * pidCalcLeft((1.0-data.valueOfSensorCenter)*2, 0.0, 0.01));
+            motor.speedRight = freqToSeconds(334 * pidCalcLeft(data.valueOfSensorCenter*2, 0.0, 0.01));
             break;
-
-        case TURN_RIGHT:
-            switch(data.onWay){
-                case ON_WAY:
-                    if(data.valueOfSensorLeft < value.Threshold){
-                        moter.speedLeft = value.speedHigh;
-                        moter.speedRight = value.speedHigh;
-                    }else{
-                        moter.speedLeft = value.speedHigh ;
-                        moter.speedRight = value.speedHigh * (1+data.valueOfSensorLeft) ;
-                    }
-                    break;
-
-                case MISSING:
-                    moter.speedLeft = value.speedHigh;
-                    moter.speedRight = value.speedHigh;
-            }
-            break;
-
-        case RIGHT:
-            if(data.valueOfSensorCenter < value.Threshold){
-                moter.speedLeft = value.speedHigh;
-                moter.speedRight = value.speedHigh;
-            }else{
-                moter.speedLeft = value.speedHigh;
-                moter.speedRight = value.speedHigh  * (1+data.valueOfSensorCenter) ;
-            }
-            break;
-
-        case TURN_LEFT:
-            switch(data.onWay){
-                case ON_WAY:
-                    if(data.valueOfSensorRight < value.Threshold){
-                        moter.speedLeft = value.speedHigh;
-                        moter.speedRight = value.speedHigh;
-                    }else{
-                        moter.speedLeft = value.speedHigh * (1+data.valueOfSensorRight);
-                        moter.speedRight = value.speedHigh ;
-                    }
-                    break;
-
-                case MISSING:
-                    moter.speedLeft = value.speedHigh;
-                    moter.speedLeft = value.speedHigh;
-            }
-            break;
-
-        case LEFT:
-            if(data.valueOfSensorCenter < value.Threshold){
-                moter.speedLeft = value.speedHigh;
-                moter.speedRight = value.speedHigh;
-            }else{
-                moter.speedLeft = value.speedHigh * (1+data.valueOfSensorCenter);
-                moter.speedRight = value.speedHigh;
-            }
+		default :
+			break;
+        // case TURN_RIGHT:
+        //     switch(data.onWay){
+        //         case ON_WAY:
+        //             if(data.valueOfSensorLeft < value.Threshold){
+        //                 motor.speedLeft = value.speedHigh;
+        //                 motor.speedRight = value.speedHigh;
+        //             }else{
+        //                 motor.speedLeft = value.speedHigh ;
+        //                 motor.speedRight = value.speedHigh * (1+data.valueOfSensorLeft) ;
+        //             }
+        //             break;
+		//
+        //         case MISSING:
+        //             motor.speedLeft = value.speedHigh;
+        //             motor.speedRight = value.speedHigh;
+        //     }
+        //     break;
+		//
+        // case RIGHT:
+        //     if(data.valueOfSensorCenter < value.Threshold){
+        //         motor.speedLeft = value.speedHigh;
+        //         motor.speedRight = value.speedHigh;
+        //     }else{
+        //         motor.speedLeft = value.speedHigh;
+        //         motor.speedRight = value.speedHigh  * (1+data.valueOfSensorCenter) ;
+        //     }
+        //     break;
+		//
+        // case TURN_LEFT:
+        //     switch(data.onWay){
+        //         case ON_WAY:
+        //             if(data.valueOfSensorRight < value.Threshold){
+        //                 motor.speedLeft = value.speedHigh;
+        //                 motor.speedRight = value.speedHigh;
+        //             }else{
+        //                 motor.speedLeft = value.speedHigh * (1+data.valueOfSensorRight);
+        //                 motor.speedRight = value.speedHigh ;
+        //             }
+        //             break;
+		//
+        //         case MISSING:
+        //             motor.speedLeft = value.speedHigh;
+        //             motor.speedLeft = value.speedHigh;
+        //     }
+        //     break;
+		//
+        // case LEFT:
+        //     if(data.valueOfSensorCenter < value.Threshold){
+        //         motor.speedLeft = value.speedHigh;
+        //         motor.speedRight = value.speedHigh;
+        //     }else{
+        //         motor.speedLeft = value.speedHigh * (1+data.valueOfSensorCenter);
+        //         motor.speedRight = value.speedHigh;
+        //     }
+		// 	break;
+		//
+		// case STOP:
+		// 	break;
 
     }
 }
+//  void setDirection(){
+//     data.oldDirection = data.direction;
+//     switch(data.brightnessCenter){
+//         case ON_BLACK:  //真ん中が線上
+//             data.onWay = ON_WAY;
+//             if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_BLACK ){
+//                 data.newDirection = FORWARD;
+//                 data.beforeWayStatus = BEFORE_WAY_IS_ALL_BLACK;
+//             }
+//             if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_WHITE){
+//                 data.newDirection = FORWARD;
+//                 data.beforeWayStatus = ON_WAY;
+//             }
+//             if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_WHITE){
+//                 switch(data.beforeWayStatus){
+//                     case BEFORE_WAY_IS_ALL_BLACK:
+//                         data.newDirection = RIGHT;
+//                         data.beforeDirection = RIGHT;
+//                         data.beforeWayStatus = BEFORE_WAY_IS_ALL_BLACK;
+//                         break;
+//
+//                     case ON_WAY:
+//                         data.newDirection = LEFT;
+//                         data.beforeDirection = LEFT;
+//                         data.beforeWayStatus = ON_WAY;
+//                         break;
+//                 }
+//             }
+//             if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_BLACK){
+//                 switch(data.beforeWayStatus){
+//                     case BEFORE_WAY_IS_ALL_BLACK:
+//                         data.newDirection = LEFT;
+//                         data.beforeDirection = LEFT;
+//                         data.beforeWayStatus = BEFORE_WAY_IS_ALL_BLACK;
+//                         break;
+//
+//                     case ON_WAY:
+//                         data.newDirection = RIGHT;
+//                         data.beforeDirection = RIGHT;
+//                         data.beforeWayStatus = ON_WAY;
+//                         break;
+//                 }
+//             }
+//             break;
+//
+//          case ON_WHITE:  //真ん中が線上にない
+//             if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_WHITE){
+//                 data.onWay = MISSING;
+//                 switch(data.beforeWayStatus){
+//                     case BEFORE_WAY_IS_ALL_BLACK:
+//                         switch(data.beforeDirection){
+//                             case LEFT:
+//                                 data.newDirection = TURN_RIGHT;
+//                                 break;
+//
+//                             case RIGHT:
+//                                 data.newDirection = TURN_LEFT;
+//                                 break;
+//                         }
+//                         data.beforeWayStatus = BEFORE_WAY_IS_ALL_BLACK;
+//                         break;
+//
+//                     case ON_WAY:
+//                         switch(data.direction){
+//                             case LEFT:
+//                                 data.newDirection = TURN_LEFT;
+//                                 break;
+//
+//                             case RIGHT:
+//                                 data.newDirection = TURN_RIGHT;
+//                                 break;
+//                         }
+//                         data.beforeWayStatus = MISSING;
+//                         break;
+//
+//
+//                     case MISSING:
+//                         switch(data.direction){
+//                             case LEFT:
+//                                 data.newDirection = TURN_LEFT;
+//                                 break;
+//
+//                             case RIGHT:
+//                                 data.newDirection = TURN_RIGHT;
+//                                 break;
+//                         }
+//                         data.beforeWayStatus = MISSING;
+//                         break;
+//                 }
+//             }
+//             if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_WHITE){
+//                 data.onWay = ON_WAY;
+//                 switch(data.beforeWayStatus){
+//                     case BEFORE_WAY_IS_ALL_BLACK:
+//                         data.beforeWayStatus = ON_WAY;
+//                         break;
+//
+//                     case ON_WAY:
+//                     case MISSING:
+//                         data.beforeDirection = LEFT;
+//                         data.newDirection = LEFT;
+//                         data.beforeWayStatus = ON_WAY;
+//                         break;
+//                 }
+//             }
+//             if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_BLACK){
+//                 data.onWay = ON_WAY;
+//                 switch(data.beforeWayStatus){
+//                     case BEFORE_WAY_IS_ALL_BLACK:
+//                         data.beforeWayStatus = ON_WAY;
+//                         break;
+//
+//                     case ON_WAY:
+//                     case MISSING:
+//                         data.beforeDirection = RIGHT;
+//                         data.newDirection = RIGHT;
+//                         data.beforeWayStatus = ON_WAY;
+//                         break;
+//                 }
+//             }
+//             if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_BLACK){
+//                 data.onWay = ON_WAY;
+//                 data.newDirection = FORWARD;
+//                 data.beforeWayStatus = ON_WAY;
+//             }
+//             break;
+//
+//     }
+//     if(data.brightnessCenter == ON_BLACK){
+//
+//     }
+//     if(data.brightnessCenter == ON_WHITE){
+//
+//     }
+//
+//     if(data.newDirection == data.oldDirection){
+//         data.flag = 0;
+//     }else{
+//         data.direction = data.newDirection;
+//         data.flag = 1;
+//     }
+// }
 void setDirection(){
-    data.oldDirection = data.direction;
-    switch(data.brightnessCenter){
-        case ON_BLACK:  //真ん中が線上
-            data.onWay = ON_WAY;
-            if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_BLACK ){
-                data.newDirection = FORWARD;
-                data.beforeWayStatus = BEFORE_WAY_IS_ALL_BLACK;
-            }
-            if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_WHITE){
-                data.newDirection = FORWARD;
-                data.beforeWayStatus = ON_WAY;
-            }
-            if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_WHITE){
-                switch(data.beforeWayStatus){
-                    case BEFORE_WAY_IS_ALL_BLACK:
-                        data.newDirection = RIGHT;
-                        data.beforeDirection = RIGHT;
-                        data.beforeWayStatus = BEFORE_WAY_IS_ALL_BLACK;
-                        break;
-
-                    case ON_WAY:
-                        data.newDirection = LEFT;
-                        data.beforeDirection = LEFT;
-                        data.beforeWayStatus = ON_WAY;
-                        break;
-                }
-            }
-            if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_BLACK){
-                switch(data.beforeWayStatus){
-                    case BEFORE_WAY_IS_ALL_BLACK:
-                        data.newDirection = LEFT;
-                        data.beforeDirection = LEFT;
-                        data.beforeWayStatus = BEFORE_WAY_IS_ALL_BLACK;
-                        break;
-
-                    case ON_WAY:
-                        data.newDirection = RIGHT;
-                        data.beforeDirection = RIGHT;
-                        data.beforeWayStatus = ON_WAY;
-                        break;
-                }
-            }
-            break;
-
-         case ON_WHITE:  //真ん中が線上にない
-            if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_WHITE){
-                data.onWay = MISSING;
-                switch(data.beforeWayStatus){
-                    case BEFORE_WAY_IS_ALL_BLACK:
-                        switch(data.beforeDirection){
-                            case LEFT:
-                                data.newDirection = TURN_RIGHT;
-                                break;
-
-                            case RIGHT:
-                                data.newDirection = TURN_LEFT;
-                                break;
-                        }
-                        data.beforeWayStatus = BEFORE_WAY_IS_ALL_BLACK;
-                        break;
-
-                    case ON_WAY:
-                        switch(data.direction){
-                            case LEFT:
-                                data.newDirection = TURN_LEFT;
-                                break;
-
-                            case RIGHT:
-                                data.newDirection = TURN_RIGHT;
-                                break;
-                        }
-                        data.beforeWayStatus = MISSING;
-                        break;
-
-
-                    case MISSING:
-                        switch(data.direction){
-                            case LEFT:
-                                data.newDirection = TURN_LEFT;
-                                break;
-
-                            case RIGHT:
-                                data.newDirection = TURN_RIGHT;
-                                break;
-                        }
-                        data.beforeWayStatus = MISSING;
-                        break;
-                }
-            }
-            if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_WHITE){
-                data.onWay = ON_WAY;
-                switch(data.beforeWayStatus){
-                    case BEFORE_WAY_IS_ALL_BLACK:
-                        data.beforeWayStatus = ON_WAY;
-                        break;
-
-                    case ON_WAY:
-                    case MISSING:
-                        data.beforeDirection = LEFT;
-                        data.newDirection = LEFT;
-                        data.beforeWayStatus = ON_WAY;
-                        break;
-                }
-            }
-            if(data.brightnessLeft == ON_WHITE && data.brightnessRight == ON_BLACK){
-                data.onWay = ON_WAY;
-                switch(data.beforeWayStatus){
-                    case BEFORE_WAY_IS_ALL_BLACK:
-                        data.beforeWayStatus = ON_WAY;
-                        break;
-
-                    case ON_WAY:
-                    case MISSING:
-                        data.beforeDirection = RIGHT;
-                        data.newDirection = RIGHT;
-                        data.beforeWayStatus = ON_WAY;
-                        break;
-                }
-            }
-            if(data.brightnessLeft == ON_BLACK && data.brightnessRight == ON_BLACK){
-                data.onWay = ON_WAY;
-                data.newDirection = FORWARD;
-                data.beforeWayStatus = ON_WAY;
-            }
-            break;
-
-    }
-    if(data.brightnessCenter == ON_BLACK){
-
-    }
-    if(data.brightnessCenter == ON_WHITE){
-
-    }
-
-    if(data.newDirection == data.oldDirection){
-        data.flag = 0;
-    }else{
-        data.direction = data.newDirection;
-        data.flag = 1;
-    }
+	data.direction = FORWARD;
 }
-
 void start(){
     setDirection();
     setSpeed();
@@ -393,77 +471,77 @@ void start(){
 void startMoterLeft(){
     switch(data.mode){
         case TEST_MODE:
-            moterTimerLeft.attach(&moter_2_StraightLeft, moter.speedLeft);
+            motorTimerLeft.attach(&motor_2_StraightLeft, motor.speedLeft);
             break;
         case RUN_MODE_12:
-            moterTimerLeft.attach(&moter_12_StraightLeft, moter.speedLeft);
+            motorTimerLeft.attach(&motor_12_StraightLeft, motor.speedLeft);
             break;
         case RUN_MODE_2:
-            moterTimerLeft.attach(&moter_2_StraightLeft, moter.speedLeft);
+            motorTimerLeft.attach(&motor_2_StraightLeft, motor.speedLeft);
             break;
         case RUN_MODE_3:
-            moterTimerLeft.attach(&moter_3_StraightLeft, moter.speedLeft);
+            motorTimerLeft.attach(&motor_3_StraightLeft, motor.speedLeft);
             break;
         case RUN_MODE_23:
-            moterTimerLeft.attach(&moter_23_StraightLeft, moter.speedLeft);
+            motorTimerLeft.attach(&motor_23_StraightLeft, motor.speedLeft);
             break;
     }
 }
 void startMoterRight(){
     switch(data.mode){
         case TEST_MODE :
-            moterTimerRight.attach(&moter_2_StraightRight, moter.speedRight);
+            motorTimerRight.attach(&motor_2_StraightRight, motor.speedRight);
             break;
         case RUN_MODE_12:
-            moterTimerRight.attach(&moter_12_StraightRight, moter.speedRight);
+            motorTimerRight.attach(&motor_12_StraightRight, motor.speedRight);
             break;
         case RUN_MODE_2:
-            moterTimerRight.attach(&moter_2_StraightRight, moter.speedRight);
+            motorTimerRight.attach(&motor_2_StraightRight, motor.speedRight);
             break;
         case RUN_MODE_3:
-            moterTimerRight.attach(&moter_3_StraightRight, moter.speedRight);
+            motorTimerRight.attach(&motor_3_StraightRight, motor.speedRight);
             break;
         case RUN_MODE_23:
-            moterTimerRight.attach(&moter_23_StraightRight, moter.speedRight);
+            motorTimerRight.attach(&motor_23_StraightRight, motor.speedRight);
     }
-    moterTimerRight.attach(&moter_2_StraightRight, moter.speedRight);
+    motorTimerRight.attach(&motor_2_StraightRight, motor.speedRight);
 }
 
 void stopMoterLeft(){
-    moterTimerLeft.detach();
+    motorTimerLeft.detach();
 }
 void stopMoterRight(){
-    moterTimerRight.detach();
+    motorTimerRight.detach();
 }
 
 void goStaight(){
-    moter.directionLeft = FORWARD;
-    moter.directionRight = FORWARD;
+    motor.directionLeft = FORWARD;
+    motor.directionRight = FORWARD;
     startMoterLeft();
     startMoterRight();
 }
 
 void goRight(){
-    moter.directionLeft = FORWARD;
-    moter.directionRight = FORWARD;
+    motor.directionLeft = FORWARD;
+    motor.directionRight = FORWARD;
     startMoterLeft();
     startMoterRight();
 }
 void goLeft(){
-    moter.directionLeft = FORWARD;
-    moter.directionRight = FORWARD;
+    motor.directionLeft = FORWARD;
+    motor.directionRight = FORWARD;
     startMoterLeft();
     startMoterRight();
 }
 void turnRight(){
-    moter.directionLeft = FORWARD;
-    moter.directionRight = FORWARD;
+    motor.directionLeft = FORWARD;
+    motor.directionRight = FORWARD;
     startMoterLeft();
     stopMoterRight();
 }
 void turnLeft(){
-    moter.directionLeft = FORWARD;
-    moter.directionRight = FORWARD;
+    motor.directionLeft = FORWARD;
+    motor.directionRight = FORWARD;
     stopMoterLeft();
     startMoterRight();
 }
@@ -473,16 +551,16 @@ void stop(){
 }
 
 
-void moter_2_StraightLeft(){
+void motor_2_StraightLeft(){
 
-    if(moter.directionLeft== FORWARD){
+    if(motor.directionLeft== FORWARD){
         if(countLeft == 3){
             countLeft = 0;
         }else{
             countLeft++;
         }
     }
-    if(moter.directionLeft == BACK){
+    if(motor.directionLeft == BACK){
         if(countRight == 0){
             countLeft = 3;
         }else{
@@ -492,39 +570,34 @@ void moter_2_StraightLeft(){
 
     switch(countLeft){
         case 0:
-            moterLeft = 0b1001;
+            motorLeft = 0b1001;
             break;
 
         case 1:
-            moterLeft = 0b1100;
+            motorLeft = 0b1100;
             break;
 
         case 2:
-            moterLeft = 0b0110;
+            motorLeft = 0b0110;
             break;
 
         case 3:
-            moterLeft = 0b0011;
+            motorLeft = 0b0011;
             break;
 
     }
 
 }
 
-void moter_2_StraightRight(){
-    // for(int i = 0.1; i < 0.01 ; i=i-0.01){
-    //     moter.speedRight = i;
-    //     moter_2_StraightRight();
-    // }
-
-    if(moter.directionRight == FORWARD){
+void motor_2_StraightRight(){
+    if(motor.directionRight == FORWARD){
         if(countRight == 3){
             countRight = 0;
         }else{
             countRight++;
         }
     }
-    if(moter.directionRight == BACK){
+    if(motor.directionRight == BACK){
         if(countRight == 0){
             countRight = 3;
         }else{
@@ -533,35 +606,35 @@ void moter_2_StraightRight(){
     }
     switch(countRight){
         case 0:
-            moterRight = 0b0011;
+            motorRight = 0b0011;
             break;
 
         case 1:
-            moterRight = 0b0110;
+            motorRight = 0b0110;
             break;
 
         case 2:
-            moterRight = 0b1100;
+            motorRight = 0b1100;
             break;
 
         case 3:
-            moterRight = 0b1001;
+            motorRight = 0b1001;
             break;
 
         default :
             break;
     }
 }
-void moter_3_StraightLeft(){
+void motor_3_StraightLeft(){
 
-    if(moter.directionLeft== FORWARD){
+    if(motor.directionLeft== FORWARD){
         if(countLeft == 3){
             countLeft = 0;
         }else{
             countLeft++;
         }
     }
-    if(moter.directionLeft == BACK){
+    if(motor.directionLeft == BACK){
         if(countRight == 0){
             countLeft = 3;
         }else{
@@ -571,34 +644,34 @@ void moter_3_StraightLeft(){
 
     switch(countLeft){
         case 0:
-            moterLeft = 0b0111;
+            motorLeft = 0b0111;
             break;
 
         case 1:
-            moterLeft = 0b1011;
+            motorLeft = 0b1011;
             break;
 
         case 2:
-            moterLeft = 0b1101;
+            motorLeft = 0b1101;
             break;
 
         case 3:
-            moterLeft = 0b1110;
+            motorLeft = 0b1110;
             break;
 
     }
 
 }
 
-void moter_3_StraightRight(){
-    if(moter.directionRight == FORWARD){
+void motor_3_StraightRight(){
+    if(motor.directionRight == FORWARD){
         if(countRight == 3){
             countRight = 0;
         }else{
             countRight++;
         }
     }
-    if(moter.directionRight == BACK){
+    if(motor.directionRight == BACK){
         if(countRight == 0){
             countRight = 3;
         }else{
@@ -607,34 +680,34 @@ void moter_3_StraightRight(){
     }
     switch(countRight){
         case 0:
-            moterRight = 0b1110;
+            motorRight = 0b1110;
             break;
 
         case 1:
-            moterRight = 0b1101;
+            motorRight = 0b1101;
             break;
 
         case 2:
-            moterRight = 0b1011;
+            motorRight = 0b1011;
             break;
 
         case 3:
-            moterRight = 0b0111;
+            motorRight = 0b0111;
             break;
 
         default :
             break;
     }
 }
-void moter_12_StraightLeft(){
-    if(moter.directionLeft == FORWARD){
+void motor_12_StraightLeft(){
+    if(motor.directionLeft == FORWARD){
         if(countLeft == 7){
             countLeft = 0;
         }else{
             countLeft++;
         }
     }
-    if(moter.directionLeft == BACK){
+    if(motor.directionLeft == BACK){
         if(countLeft == 0){
             countLeft = 7;
         }else{
@@ -643,50 +716,50 @@ void moter_12_StraightLeft(){
     }
     switch(countLeft){
         case 0:
-            moterLeft = 0b1001;
+            motorLeft = 0b1001;
             break;
 
         case 1:
-            moterLeft = 0b1000;
+            motorLeft = 0b1000;
             break;
 
         case 2:
-            moterLeft = 0b1100;
+            motorLeft = 0b1100;
             break;
 
         case 3:
-            moterLeft = 0b0100;
+            motorLeft = 0b0100;
             break;
 
         case 4:
-            moterLeft = 0b0110;
+            motorLeft = 0b0110;
             break;
 
         case 5:
-            moterLeft = 0b0010;
+            motorLeft = 0b0010;
             break;
 
         case 6:
-            moterLeft = 0b0011;
+            motorLeft = 0b0011;
             break;
 
         case 7:
-            moterLeft = 0b0001;
+            motorLeft = 0b0001;
             break;
 
     }
 }
 
 
-void moter_12_StraightRight(){
-    if(moter.directionRight == FORWARD){
+void motor_12_StraightRight(){
+    if(motor.directionRight == FORWARD){
         if(countRight == 7){
             countRight = 0;
         }else{
             countRight++;
         }
     }
-    if(moter.directionRight == BACK){
+    if(motor.directionRight == BACK){
         if(countRight == 0){
             countRight = 7;
         }else{
@@ -695,48 +768,48 @@ void moter_12_StraightRight(){
     }
     switch(countRight){
         case 0:
-            moterRight = 0b0001;
+            motorRight = 0b0001;
             break;
 
         case 1:
-            moterRight = 0b0011;
+            motorRight = 0b0011;
             break;
 
         case 2:
-            moterRight = 0b0010;
+            motorRight = 0b0010;
             break;
 
         case 3:
-            moterRight = 0b0110;
+            motorRight = 0b0110;
             break;
 
         case 4:
-            moterRight = 0b0100;
+            motorRight = 0b0100;
             break;
 
         case 5:
-            moterRight = 0b1100;
+            motorRight = 0b1100;
             break;
 
         case 6:
-            moterRight = 0b1000;
+            motorRight = 0b1000;
             break;
 
         case 7:
-            moterRight = 0b1001;
+            motorRight = 0b1001;
             break;
 
     }
 }
-void moter_23_StraightLeft(){
-    if(moter.directionLeft == FORWARD){
+void motor_23_StraightLeft(){
+    if(motor.directionLeft == FORWARD){
         if(countLeft == 7){
             countLeft = 0;
         }else{
             countLeft++;
         }
     }
-    if(moter.directionLeft == BACK){
+    if(motor.directionLeft == BACK){
         if(countLeft == 0){
             countLeft = 7;
         }else{
@@ -745,50 +818,50 @@ void moter_23_StraightLeft(){
     }
     switch(countLeft){
         case 0:
-            moterLeft = 0b1001;
+            motorLeft = 0b1001;
             break;
 
         case 1:
-            moterLeft = 0b1101;
+            motorLeft = 0b1101;
             break;
 
         case 2:
-            moterLeft = 0b1100;
+            motorLeft = 0b1100;
             break;
 
         case 3:
-            moterLeft = 0b1110;
+            motorLeft = 0b1110;
             break;
 
         case 4:
-            moterLeft = 0b0110;
+            motorLeft = 0b0110;
             break;
 
         case 5:
-            moterLeft = 0b0111;
+            motorLeft = 0b0111;
             break;
 
         case 6:
-            moterLeft = 0b0011;
+            motorLeft = 0b0011;
             break;
 
         case 7:
-            moterLeft = 0b1011;
+            motorLeft = 0b1011;
             break;
 
     }
 }
 
 
-void moter_23_StraightRight(){
-    if(moter.directionRight == FORWARD){
+void motor_23_StraightRight(){
+    if(motor.directionRight == FORWARD){
         if(countRight == 7){
             countRight = 0;
         }else{
             countRight++;
         }
     }
-    if(moter.directionRight == BACK){
+    if(motor.directionRight == BACK){
         if(countRight == 0){
             countRight = 7;
         }else{
@@ -797,35 +870,35 @@ void moter_23_StraightRight(){
     }
     switch(countRight){
         case 0:
-            moterRight = 0b1011;
+            motorRight = 0b1011;
             break;
 
         case 1:
-            moterRight = 0b0011;
+            motorRight = 0b0011;
             break;
 
         case 2:
-            moterRight = 0b0111;
+            motorRight = 0b0111;
             break;
 
         case 3:
-            moterRight = 0b0110;
+            motorRight = 0b0110;
             break;
 
         case 4:
-            moterRight = 0b1110;
+            motorRight = 0b1110;
             break;
 
         case 5:
-            moterRight = 0b1100;
+            motorRight = 0b1100;
             break;
 
         case 6:
-            moterRight = 0b1101;
+            motorRight = 0b1101;
             break;
 
         case 7:
-            moterRight = 0b1001;
+            motorRight = 0b1001;
             break;
 
     }
@@ -858,7 +931,7 @@ void debug(){
             printf("TURN_RIGHT");
             break;
     }
-    printf("\t\t");
+    printf("\t");
     printf("MODE:");
     switch(data.mode){
         case RUN_MODE_12:
@@ -874,23 +947,32 @@ void debug(){
             break;
     }
     printf("\t");
-    printf("volume:");
-    printf("%f",data.valueOfVolume);
+    printf("speedHigh:");
+    printf("%.4f",value.speedHigh);
     printf("\t");
-    printf("beforeWayStatus:");
-    switch(data.beforeWayStatus){
-        case ON_WAY:
-            printf("ON_WAY");
-            break;
-        case BEFORE_WAY_IS_ALL_BLACK:
-            printf("BEFORE_WAY_IS_ALL_BLACK");
-            break;
-        case MISSING:
-            printf("MISSING");
-            break;
-    }
-    printf("\t");
+	printf("speedLeft:");
+	printf("%.4f ", motor.speedLeft);
+	printf("speedRight:");
+	printf("%.4f ", motor.speedRight);
+	printf("\t");
+    // printf("beforeWayStatus:");
+    // switch(data.beforeWayStatus){
+    //     case ON_WAY:
+    //         printf("ON_WAY");
+    //         break;
+    //     case BEFORE_WAY_IS_ALL_BLACK:
+    //         printf("BEFORE_WAY_IS_ALL_BLACK");
+    //         break;
+    //     case MISSING:
+    //         printf("MISSING");
+    //         break;
+    // }
+    // printf("\t");
     printf("\n");
+}
+
+float freqToSeconds(int freq){
+	return 1.0 / freq ;
 }
 
 void init(){
@@ -899,37 +981,40 @@ void init(){
     modeSet();
     switch(data.mode){
         case RUN_MODE_3:
-            value.speedLow = 0.04;
-            value.speedMedium = 0.006;
-            value.speedHigh = 0.003;
+            value.speedLow = freqToSeconds(25);
+            value.speedMedium = freqToSeconds(167);
+            value.speedHigh = freqToSeconds(334);
             value.DEBUG = false;
             break;
         case RUN_MODE_2:
-            value.speedLow = 0.04;
-            value.speedMedium = 0.006;
-            value.speedHigh = 0.003;
-            value.DEBUG = false;
+            value.speedLow = freqToSeconds(0);
+            value.speedMedium = freqToSeconds(167);
+            value.speedHigh = freqToSeconds(334);
+            value.DEBUG = true;
             break;
         case RUN_MODE_23:
-            value.speedLow = 0.02;
-            value.speedMedium = 0.0040;
-            value.speedHigh = 0.0015;
+            value.speedLow = freqToSeconds(50);
+            value.speedMedium = freqToSeconds(250);
+            value.speedHigh = freqToSeconds(667);
             value.DEBUG = false;
             break;
         case RUN_MODE_12:
-            value.speedLow = 0.02;
-            value.speedMedium = 0.0040;
-            value.speedHigh = 0.0015;
+            value.speedLow = freqToSeconds(50);
+            value.speedMedium =	freqToSeconds(250);
+            value.speedHigh = freqToSeconds(667);
             value.DEBUG = false;
             break;
         case TEST_MODE:
-            value.speedLow = 0.1;
-            value.speedMedium = 0.03;
-            value.speedHigh = 0.015;
+            value.speedLow = freqToSeconds(10);
+            value.speedMedium = freqToSeconds(33);
+            value.speedHigh = freqToSeconds(66);
             value.DEBUG = true;
             break;
     }
     value.Threshold = data.valueOfVolume;
+	value.KP = 0.804;
+	value.KI = 0;
+	value.KD = 0;
 }
 
 void modeSet(){
@@ -957,5 +1042,7 @@ int main() {
         getData();
         start();
         if(value.DEBUG) debug();
+		wait_ms (10);
+		value.KP = volume*2;
     }
 }
