@@ -1,3 +1,4 @@
+//タイマー使うべきはPID計算、それ以外はWaitのほうがいい。（じゃないとWaitよりでかい時間のモーター100Hz以下が回らん）
 #include <mbed.h>
 enum RUN_MODE{
 	RUN_MODE_2,
@@ -6,7 +7,6 @@ enum RUN_MODE{
 	RUN_MODE_23,
 	TEST_MODE
 };
-
 
 enum BRIGHTNESS{
 	ON_WHITE,
