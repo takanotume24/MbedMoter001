@@ -9,5 +9,5 @@ before_script:
  
 job:
   stage: test
-  script: "platformio ci --board=nucleo_f446re"
+  script: "platformio run"
   variables: {PLATFORMIO_CI_SRC: "src/main.cpp"}
